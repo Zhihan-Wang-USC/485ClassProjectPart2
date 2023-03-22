@@ -83,4 +83,6 @@ public interface TableManager {
    * @return status code
    */
   public StatusCode dropAllTables();
+
+  public TableMetadata getTableMetadata(String tableName);
 }

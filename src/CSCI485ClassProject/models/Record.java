@@ -142,11 +142,19 @@ public class Record {
 
     int i = 0;
     for (String key : mapAttrNameToValue.keySet()) {
-      mapAttrNameToValue.put(key, values.get(i));
+      this.mapAttrNameToValue.put(key, values.get(i)); //add "this."
       i++;
     }
 
     return SUCCESS;
+  }
+
+  public HashMap<String, Object> getMapAttrNameToValueValue() {
+    HashMap<String, Object> mapAttrNameToValueAsObject = new HashMap<>();
+    for (Map.Entry<String, Value> kv : mapAttrNameToValue.entrySet()) {
+      mapAttrNameToValueAsObject.put(kv.getKey(), kv.getValue().getValue());
+    }
+    return mapAttrNameToValueAsObject;
   }
 
   public Object getValueForGivenAttrName(String attrName) {
