@@ -42,6 +42,10 @@ public class RecordTransformer {
     return new Tuple().add(attributeName).addAll(primaryKeyValueTuple);
   }
 
+  public static Tuple getTableRecordAttributeKeyTuplePrefix(String attributeName) {
+    return new Tuple().add(attributeName);
+  }
+
   public static Tuple getTableRecordExistTuple(Tuple primaryKeyValueTuple, List<String> primaryKeys) {
     return new Tuple().add(primaryKeys.get(0)).addAll(primaryKeyValueTuple);
   }
@@ -49,6 +53,8 @@ public class RecordTransformer {
   public static Tuple getTableRecordExistTuplePrefix(List<String> primaryKeys) {
       return new Tuple().add(primaryKeys.get(0));
   }
+
+
 
   public static Tuple getPrimaryKeyValueTuple(Tuple tableRecordExistTuple) {
     // Why 2? Because the first two elements are directorySubspace and attributeName

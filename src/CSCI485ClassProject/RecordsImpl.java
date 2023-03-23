@@ -40,11 +40,12 @@ public class RecordsImpl implements Records{
       return StatusCode.DATA_RECORD_PRIMARY_KEYS_UNMATCHED;
     }
 
+
+
+    // Check attrNames are valid
     if (attrNames.length != attrValues.length) {
       return StatusCode.DATA_RECORD_CREATION_ATTRIBUTES_INVALID;
     }
-
-    // Check attrNames are valid
     Set<String> attributeNamesOnRecord = tableMetadata.getAttributes().keySet().stream().collect(Collectors.toSet());
     Set<String> attributeNamesOnInsert = new HashSet<>(Arrays.asList(attrNames));
 
@@ -80,7 +81,6 @@ public class RecordsImpl implements Records{
     insertRecord.setMapAttrNameToValue(hashMapAttributeNameToValue);
 
     // IF attribute not in record, update mapMetadata
-
     boolean isAttributeTypeMatched = Arrays.stream(attrNames)
             .allMatch(attrName ->
                     tableMetadata.getAttributes().get(attrName) == null ||
@@ -95,22 +95,37 @@ public class RecordsImpl implements Records{
     Map<String, Object> pkMap = IntStream.range(0, primaryKeys.length).boxed()
             .collect(Collectors.toMap(i -> primaryKeys[i], i -> primaryKeysValues[i]));
     Tuple primaryKeyValueTuple = Tuple.fromList(tableMetadata.getPrimaryKeys().stream().map(pkMap::get).collect(Collectors.toList()));
+    Tuple primaryKeyValueTupleL = new Tuple().add(primaryKeyValueTuple);
 
 
     RecordTransformer recordTransformer = new RecordTransformer(tableName);
     List<String> recordAttributeStorePath = recordTransformer.getRecordAttributeStorePath();
     DirectorySubspace tableDirectory = FDBHelper.createOrOpenSubspace(tx, recordAttributeStorePath);
 
+//    System.out.println("EXISTPK " + RecordTransformer.getTableRecordExistTuple(primaryKeyValueTuple, tableMetadata.getPrimaryKeys()));
+//    System.out.println("subspace " + Utils.byteArray2String( tableDirectory.pack()));
+//    System.out.println("primary key " + Utils.byteArray2String( primaryKeyValueTuple.pack()));
+
+
+    Tuple attributeKeyTuple = recordTransformer.getTableRecordAttributeKeyTuple(primaryKeyValueTupleL, tableMetadata.getPrimaryKeys().get(0));
+//    System.out.println("attibute key " + Utils.byteArray2String( attributeKeyTuple.pack()));
+
     FDBKVPair pair = FDBHelper.getCertainKeyValuePairInSubdirectory(
             tableDirectory,
             tx,
-            RecordTransformer.getTableRecordExistTuple(primaryKeyValueTuple, tableMetadata.getPrimaryKeys()),
+            attributeKeyTuple,
             recordAttributeStorePath);
+//
+//    FDBKVPair pair = FDBHelper.getCertainKeyValuePairInSubdirectory(
+//            tableDirectory,
+//            tx,
+//            RecordTransformer.getTableRecordExistTuple(primaryKeyValueTuple, tableMetadata.getPrimaryKeys()),
+//            recordAttributeStorePath);
 
     if (pair != null) {
       // KVPair exists
       FDBHelper.abortTransaction(tx);
-      return StatusCode.ATTRIBUTE_ALREADY_EXISTS;
+      return StatusCode.DATA_RECORD_CREATION_RECORD_ALREADY_EXISTS;
     }
 
     // Insert record into table : convert to FDBKVPairs
@@ -180,12 +195,12 @@ public class RecordsImpl implements Records{
 
   @Override
   public StatusCode updateRecord(Cursor cursor, String[] attrNames, Object[] attrValues) {
-    return null;
+    return cursor.updateRecord(attrNames, attrValues);
   }
 
   @Override
   public StatusCode deleteRecord(Cursor cursor) {
-    return null;
+    return cursor.dropRecord();
   }
 
   @Override

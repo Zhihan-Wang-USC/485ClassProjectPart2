@@ -133,6 +133,24 @@ public class TableManagerImpl implements TableManager{
     return res;
   }
 
+  public TableMetadata getTableMetadataTx(Transaction readTx, String tableName) {
+    // your code
+//    Transaction readTx = FDBHelper.openTransaction(db);
+
+    if (!FDBHelper.doesSubdirectoryExists(readTx,Collections.singletonList(tableName))) {
+      FDBHelper.abortTransaction(readTx);
+      return null;
+    }
+
+    TableMetadataTransformer tblTransformer = new TableMetadataTransformer(tableName);
+    List<String> tblAttributeDirPath = tblTransformer.getTableAttributeStorePath();
+    List<FDBKVPair> kvPairs = FDBHelper.getAllKeyValuePairsOfSubdirectory(db, readTx, tblAttributeDirPath);
+    TableMetadata res = tblTransformer.convertBackToTableMetadata(kvPairs);
+
+//    FDBHelper.commitTransaction(readTx);
+    return res;
+  }
+
   @Override
   public StatusCode addAttribute(String tableName, String attributeName, AttributeType attributeType) {
     // your code
@@ -211,6 +229,30 @@ public class TableManagerImpl implements TableManager{
     // if exists, remove the attribute corresponding kvPair
     FDBHelper.removeKeyValuePair(tx, tableAttrDir, pair.getKey());
     FDBHelper.commitTransaction(tx);
+
+    return StatusCode.SUCCESS;
+  }
+
+  public StatusCode dropAttributeTx(Transaction tx, String tableName, String attributeName) {
+    // check if the table exists
+    if (!FDBHelper.doesSubdirectoryExists(tx,Collections.singletonList(tableName))) {
+      FDBHelper.abortTransaction(tx);
+      return StatusCode.TABLE_NOT_FOUND;
+    }
+
+    TableMetadataTransformer transformer = new TableMetadataTransformer(tableName);
+    List<String> tblAttributeDirPath = transformer.getTableAttributeStorePath();
+    DirectorySubspace tableAttrDir = FDBHelper.openSubspace(tx, tblAttributeDirPath);
+
+    // retrieve the target attribute, check if that attribute exists
+    FDBKVPair pair = FDBHelper.getCertainKeyValuePairInSubdirectory(tableAttrDir, tx, TableMetadataTransformer.getTableAttributeKeyTuple(attributeName), tblAttributeDirPath);
+    if (pair == null) {
+      // KVPair not exists
+      FDBHelper.abortTransaction(tx);
+      return StatusCode.ATTRIBUTE_NOT_FOUND;
+    }
+    // if exists, remove the attribute corresponding kvPair
+    FDBHelper.removeKeyValuePair(tx, tableAttrDir, pair.getKey());
 
     return StatusCode.SUCCESS;
   }

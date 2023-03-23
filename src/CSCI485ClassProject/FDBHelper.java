@@ -39,10 +39,27 @@ public class FDBHelper {
     }
     tx.set(tgtSubspace.pack(kv.getKey()), kv.getValue().pack());
 
-    System.out.println("Set key: " + Utils.byteArray2String( tgtSubspace.pack(kv.getKey()))
-            + " value: " + Utils.byteArray2String(kv.getValue().pack())
-            + " in subspace: " + Utils.byteArray2String(tgtSubspace.pack())
-    );
+//    System.out.println("Set key: " + Utils.byteArray2String( tgtSubspace.pack(kv.getKey()))
+//            + " KeyTuple: " + kv.getKey().toString()
+//            + " value: " + Utils.byteArray2String(kv.getValue().pack())
+//            + " in subspace: " + Utils.byteArray2String(tgtSubspace.pack())
+//    );
+  }
+
+  public static byte[] getFDBKVPair(DirectorySubspace tgtSubspace, Transaction tx, FDBKVPair kv) {
+//    FDBKVPair kv = new FDBKVPair(, key, value);
+    if (tgtSubspace == null) {
+      tgtSubspace = FDBHelper.createOrOpenSubspace(tx, kv.getSubspacePath());
+    }
+    tx.set(tgtSubspace.pack(kv.getKey()), kv.getValue().pack());
+
+//    System.out.println("Set key: " + Utils.byteArray2String( tgtSubspace.pack(kv.getKey()))
+//            + " KeyTuple: " + kv.getKey().toString()
+//            + " KeyTubleBytes: " + Utils.byteArray2String(kv.getKey().pack())
+//            + " value: " + Utils.byteArray2String(kv.getValue().pack())
+//            + " in subspace: " + Utils.byteArray2String(tgtSubspace.pack())
+//    );
+    return null;
   }
 
   public static List<String> getAllDirectSubspaceName(Transaction tx) {
@@ -78,8 +95,9 @@ public class FDBHelper {
     byte[] dirB = dir.pack();
     byte[] dirPackKey = dir.pack(keyTuple);
 
-    System.out.println("Get key: " + Utils.byteArray2String(dirPackKey)
-            + " in subspace: " + Utils.byteArray2String(dir.pack()));
+//    System.out.println("Get key: " + Utils.byteArray2String(dirPackKey)
+//            + " KeyTuple: " + keyTuple.toString()
+//            + " in subspace: " + Utils.byteArray2String(dir.pack()));
 
     byte[] valBytes = tx.get(dir.pack(keyTuple)).join();
     if (valBytes == null) {

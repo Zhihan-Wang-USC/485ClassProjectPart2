@@ -11,11 +11,12 @@ import com.apple.foundationdb.tuple.ByteArrayUtil;
 import com.apple.foundationdb.tuple.Tuple;
 import com.apple.foundationdb.*;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import javax.swing.*;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class Cursor {
   public enum Mode {
@@ -34,7 +35,7 @@ public class Cursor {
   private Transaction tx;
   private Database db;
 
-  private TableManager tableManager;
+  private TableManagerImpl tableManager;
 
   private RecordTransformer recordTransformer;
 
@@ -60,6 +61,9 @@ public class Cursor {
     COMMITTED,
     ERROR
   }
+
+  private Tuple currentPrimaryKeyValueTuple = null;
+  private Record currentRecord = null;
 
   private Function<Record, Boolean> predicateFunction = null;
 
@@ -166,8 +170,8 @@ public class Cursor {
     byte[] keyPrefixB = tableDirectory.pack(pkExistPrefix);
 
     Range range = Range.startsWith(keyPrefixB);
-    System.out.println("keyPrefixB " + Utils.byteArray2String(keyPrefixB));
-    System.out.println("tabledirectory " +Utils.byteArray2String(tableDirectory.pack()));
+//    System.out.println("keyPrefixB " + Utils.byteArray2String(keyPrefixB));
+//    System.out.println("tabledirectory " +Utils.byteArray2String(tableDirectory.pack()));
 
     assert (direction != Direction.UNSET);
 
@@ -224,6 +228,8 @@ public class Cursor {
       return null;
     }
 
+    currentPrimaryKeyValueTuple = null;
+    currentRecord = null;
     return getCurrentRecord();
 
   }
@@ -243,11 +249,14 @@ public class Cursor {
       return null;
     }
 
+    currentPrimaryKeyValueTuple = null;
+    currentRecord = null;
     return getCurrentRecord();
   }
 
 
   public Record getCurrentRecord() {
+
     if (cursorStatus == CursorStatus.EOF){
       return null;
     }
@@ -255,6 +264,10 @@ public class Cursor {
     if (cursorStatus != CursorStatus.ITERATOR_INITIALIZED) {
       cursorStatus = CursorStatus.ERROR;
       return null;
+    }
+
+    if (currentRecord!= null) {
+      return currentRecord;
     }
 
     Tuple recordExistTuple = null;
@@ -266,7 +279,7 @@ public class Cursor {
       }
 
       if (!iterator.hasNext()) {
-        System.out.println("iterator reach end, EOF!");
+//        System.out.println("iterator reach end, EOF!");
         cursorStatus = CursorStatus.EOF;
         return null;
       }
@@ -278,7 +291,7 @@ public class Cursor {
         return null;
       }
 
-      System.out.println("Get key: " + Utils.byteArray2String(nextKeyValue.getKey()) + " value: " + Utils.byteArray2String( nextKeyValue.getValue()));
+//      System.out.println("Get key: " + Utils.byteArray2String(nextKeyValue.getKey()) + " value: " + Utils.byteArray2String( nextKeyValue.getValue()));
       recordExistTuple = Tuple.fromBytes(nextKeyValue.getKey());
     } catch (Exception e) {
       e.printStackTrace();
@@ -292,13 +305,12 @@ public class Cursor {
     Record record = getRecordByPrimaryKeyValueTuple(primaryKeyValueTuple);
 
     // Apply predicate function
-    if (predicateFunction != null){
-      System.out.println("checking predicate");
-    }
     while (predicateFunction != null && record != null && !predicateFunction.apply(record)){
-      System.out.println("predicate not satisfied, get next record");
+//      System.out.println("predicate not satisfied, get next record");
       record = getCurrentRecord();
     }
+    currentRecord = record;
+    currentPrimaryKeyValueTuple = primaryKeyValueTuple;
     return record;
 
   }
@@ -325,16 +337,111 @@ public class Cursor {
     return currentRecord;
   }
 
+  public StatusCode dropRecord() {
+    if(cursorStatus == CursorStatus.EOF){
+      return StatusCode.CURSOR_REACH_TO_EOF;
+    }
+    if(currentPrimaryKeyValueTuple == null){
+      return StatusCode.CURSOR_INVALID;
+    }
+    Tuple primaryKeyValueTuple = currentPrimaryKeyValueTuple;
+    TableMetadata tableMetadata = tableManager.getTableMetadataTx(tx, tableName);
+    for (String attributeName : tableMetadata.getAttributes().keySet()){
+      Tuple attributeKeyTuple = recordTransformer.getTableRecordAttributeKeyTuple(primaryKeyValueTuple, attributeName);
+      FDBKVPair fdbkvPair = FDBHelper.getCertainKeyValuePairInSubdirectory(
+              tableDirectory,
+              tx,
+              attributeKeyTuple,
+              recordAttributeStorePath);
+      if (fdbkvPair == null) {
+        continue;
+      }
+//      System.out.println(fdbkvPair);
+//      System.out.println(fdbkvPair.getKey());
+      FDBHelper.removeKeyValuePair(tx, tableDirectory, fdbkvPair.getKey());
+      byte[] keyPrefixB = tableDirectory.pack(RecordTransformer.getTableRecordAttributeKeyTuplePrefix(attributeName));
+      Range range = Range.startsWith(keyPrefixB);
+      AsyncIterator<KeyValue> iterator = tx.getRange(range).iterator();
+      if (!iterator.hasNext()){
+        // the record we are deleating are the only record that have the attribute, so we need to shrink table metadata
+        tableManager.dropAttributeTx(tx, tableName, attributeName);
+      }
+    }
+    return StatusCode.SUCCESS;
+  }
+
   public StatusCode commit() {
     if (tx == null) {
       return StatusCode.CURSOR_INVALID;
     }
     if (cursorStatus == CursorStatus.EOF || cursorStatus == CursorStatus.ITERATOR_INITIALIZED ) {
       assert(FDBHelper.commitTransaction(tx));
+      cursorStatus = CursorStatus.COMMITTED;
       return StatusCode.SUCCESS;
     }
     System.out.println("Cursor status is" + cursorStatus + " not ready to commit");
     return StatusCode.CURSOR_INVALID;
+  }
+
+  public StatusCode updateRecord(String[] attrNames, Object[] attrValues) {
+
+    if (cursorStatus == CursorStatus.EOF){
+      return StatusCode.CURSOR_REACH_TO_EOF;
+    }
+    if (cursorStatus != CursorStatus.ITERATOR_INITIALIZED) {
+      return StatusCode.CURSOR_NOT_INITIALIZED;
+    }
+
+    TableMetadata tableMetadata = tableManager.getTableMetadataTx(tx, tableName);
+    Record record = currentRecord;
+
+    for (int i = 0; i < attrNames.length; i++) {
+      String attrName = attrNames[i];
+      Object attrValue = attrValues[i];
+      if (!tableMetadata.getAttributes().containsKey(attrName)) {
+        return StatusCode.CURSOR_UPDATE_ATTRIBUTE_NOT_FOUND;
+      }
+      record.setAttrNameAndValue(attrName, attrValue);
+    }
+
+    // IF attribute not in record, update mapMetadata
+    boolean isAttributeTypeMatched = Arrays.stream(attrNames)
+            .allMatch(attrName ->
+                    tableMetadata.getAttributes().get(attrName) == null ||
+                    record.getTypeForGivenAttrName(attrName)==tableMetadata.getAttributes().get(attrName));
+    if (!isAttributeTypeMatched) {
+      return StatusCode.DATA_RECORD_CREATION_ATTRIBUTE_TYPE_UNMATCHED;
+    }
+
+    Map<String, Object> pkMap = record.getMapAttrNameToValueValue();
+
+    Tuple primaryKeyValueTuple = Tuple.fromList(tableMetadata.getPrimaryKeys().stream().map(pkMap::get).collect(Collectors.toList()));
+    Tuple primaryKeyValueTupleL = new Tuple().add(primaryKeyValueTuple);
+
+    // Drop old record
+    Tuple oldPrimaryKeyValueTuple = currentPrimaryKeyValueTuple;
+    for (String attributeName : tableMetadata.getAttributes().keySet()){
+      Tuple attributeKeyTuple = recordTransformer.getTableRecordAttributeKeyTuple(oldPrimaryKeyValueTuple, attributeName);
+      FDBKVPair fdbkvPair = FDBHelper.getCertainKeyValuePairInSubdirectory(
+              tableDirectory,
+              tx,
+              attributeKeyTuple,
+              recordAttributeStorePath);
+      if (fdbkvPair == null) {
+        continue;
+      }
+//      System.out.println(fdbkvPair);
+//      System.out.println(fdbkvPair.getKey());
+      FDBHelper.removeKeyValuePair(tx, tableDirectory, fdbkvPair.getKey());
+    }
+
+    // Insert new record
+    List<FDBKVPair> pairs = recordTransformer.convertToFDBKVPairs(record, primaryKeyValueTuple);
+    for (FDBKVPair kvPair : pairs) {
+      FDBHelper.setFDBKVPair(tableDirectory, tx, kvPair);
+    }
+
+    return StatusCode.SUCCESS;
   }
 
 }
