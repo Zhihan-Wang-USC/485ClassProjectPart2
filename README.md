@@ -34,4 +34,5 @@ To run tests of part2, use command
 make part2Test
 ```
 
-As you may have different project structures, Makefile may not work in your implementation. In this case, you can change the `sources` variable in Makefile accordingly.
+As you may have different project structures, Makefile may not work in your implementation. In this case, you can change the `sources` variable in Makefile by adding the name of the java files you created to it.
+Note that the order of the file should align with the class dependency relationship, i.e. class `A` imports `B`, then `B.java` should be in front of `A.java` in `sources`.
