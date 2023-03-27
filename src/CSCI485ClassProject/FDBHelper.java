@@ -143,7 +143,9 @@ public class FDBHelper {
   }
 
   public static boolean commitTransaction(Transaction tx) {
-    return tryCommitTx(tx, 0);
+    boolean b = tryCommitTx(tx, 0);
+    tx.close();
+    return b;
   }
 
   public static boolean tryCommitTx(Transaction tx, int retryCounter) {
@@ -164,6 +166,7 @@ public class FDBHelper {
 
   public static void abortTransaction(Transaction tx) {
     tx.cancel();
+    tx.close();
   }
 
   public static AttributeType getType(Object value) {
